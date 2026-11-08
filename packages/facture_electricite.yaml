@@ -1,0 +1,564 @@
+# =============================================================================
+#  Facture d'électricité — estimation jour / mois / année + comparatif VARIO
+#  Package Home Assistant (à placer dans /config/packages/)
+#
+#  Principe : le rapport ne lit jamais directement le compteur P1 ni les capteurs
+#  tarifaires. Il lit 7 entités choisies dans input_text.facture_source_* (via le
+#  script « Facture : choisir les sources »), exposées par des capteurs "miroirs".
+#  Changer de compteur ou de fournisseur = changer ces 7 sélections.
+# =============================================================================
+
+# ── Sélections (entity_id lus par le rapport) ─────────────────────────────────
+# Pas de "initial:" volontairement : la valeur choisie doit survivre aux
+# redémarrages. Les valeurs par défaut sont posées au démarrage si le champ est
+# vide (voir l'automatisation en bas de fichier).
+input_text:
+  facture_source_import_hp:
+    name: "Facture source Import HP"
+    icon: mdi:transmission-tower-import
+    min: 0
+    max: 255
+  facture_source_import_hc:
+    name: "Facture source Import HC"
+    icon: mdi:transmission-tower-import
+    min: 0
+    max: 255
+  facture_source_injection:
+    name: "Facture source Injection"
+    icon: mdi:transmission-tower-export
+    min: 0
+    max: 255
+  facture_source_tarif_actif:
+    name: "Facture source Tarif actif"
+    icon: mdi:swap-horizontal
+    min: 0
+    max: 255
+  facture_source_prix_double_hp:
+    name: "Facture source Prix DOUBLE HP"
+    icon: mdi:tag
+    min: 0
+    max: 255
+  facture_source_prix_double_hc:
+    name: "Facture source Prix DOUBLE HC"
+    icon: mdi:tag
+    min: 0
+    max: 255
+  facture_source_grille_vario:
+    name: "Facture source Grille VARIO"
+    icon: mdi:chart-timeline-variant
+    min: 0
+    max: 255
+
+# ── Réglages ──────────────────────────────────────────────────────────────────
+input_number:
+  facture_prix_reprise_injection:
+    name: "Facture prix reprise injection"
+    icon: mdi:solar-power
+    min: 0
+    max: 1
+    step: 0.0001
+    mode: box
+    unit_of_measurement: "CHF/kWh"
+  facture_frais_fixes_mensuels:
+    name: "Facture frais fixes mensuels"
+    icon: mdi:cash-clock
+    min: 0
+    max: 500
+    step: 0.05
+    mode: box
+    unit_of_measurement: "CHF"
+
+# Date de début du suivi du comparatif DOUBLE / VARIO (posée au premier démarrage)
+input_datetime:
+  facture_suivi_depuis:
+    name: "Facture suivi comparatif depuis"
+    icon: mdi:calendar-start
+    has_date: true
+    has_time: true
+
+# ── Compteurs jour / mois / année (utility_meter) ─────────────────────────────
+utility_meter:
+  # Consommation et injection (kWh)
+  facture_conso_hp_jour:
+    name: "Facture conso HP jour"
+    unique_id: facture_conso_hp_jour
+    source: sensor.facture_p1_import_hp
+    cycle: daily
+    periodically_resetting: true
+  facture_conso_hp_mois:
+    name: "Facture conso HP mois"
+    unique_id: facture_conso_hp_mois
+    source: sensor.facture_p1_import_hp
+    cycle: monthly
+    periodically_resetting: true
+  facture_conso_hp_annee:
+    name: "Facture conso HP année"
+    unique_id: facture_conso_hp_annee
+    source: sensor.facture_p1_import_hp
+    cycle: yearly
+    periodically_resetting: true
+  facture_conso_hc_jour:
+    name: "Facture conso HC jour"
+    unique_id: facture_conso_hc_jour
+    source: sensor.facture_p1_import_hc
+    cycle: daily
+    periodically_resetting: true
+  facture_conso_hc_mois:
+    name: "Facture conso HC mois"
+    unique_id: facture_conso_hc_mois
+    source: sensor.facture_p1_import_hc
+    cycle: monthly
+    periodically_resetting: true
+  facture_conso_hc_annee:
+    name: "Facture conso HC année"
+    unique_id: facture_conso_hc_annee
+    source: sensor.facture_p1_import_hc
+    cycle: yearly
+    periodically_resetting: true
+  facture_injection_jour:
+    name: "Facture injection jour"
+    unique_id: facture_injection_jour
+    source: sensor.facture_p1_injection
+    cycle: daily
+    periodically_resetting: true
+  facture_injection_mois:
+    name: "Facture injection mois"
+    unique_id: facture_injection_mois
+    source: sensor.facture_p1_injection
+    cycle: monthly
+    periodically_resetting: true
+  facture_injection_annee:
+    name: "Facture injection année"
+    unique_id: facture_injection_annee
+    source: sensor.facture_p1_injection
+    cycle: yearly
+    periodically_resetting: true
+  # Coûts cumulés DOUBLE et VARIO (CHF)
+  facture_cout_double_jour:
+    name: "Facture coût DOUBLE jour"
+    unique_id: facture_cout_double_jour
+    source: sensor.facture_cout_cumule_double
+    cycle: daily
+    periodically_resetting: true
+  facture_cout_double_mois:
+    name: "Facture coût DOUBLE mois"
+    unique_id: facture_cout_double_mois
+    source: sensor.facture_cout_cumule_double
+    cycle: monthly
+    periodically_resetting: true
+  facture_cout_double_annee:
+    name: "Facture coût DOUBLE année"
+    unique_id: facture_cout_double_annee
+    source: sensor.facture_cout_cumule_double
+    cycle: yearly
+    periodically_resetting: true
+  facture_cout_vario_jour:
+    name: "Facture coût VARIO jour"
+    unique_id: facture_cout_vario_jour
+    source: sensor.facture_cout_cumule_vario
+    cycle: daily
+    periodically_resetting: true
+  facture_cout_vario_mois:
+    name: "Facture coût VARIO mois"
+    unique_id: facture_cout_vario_mois
+    source: sensor.facture_cout_cumule_vario
+    cycle: monthly
+    periodically_resetting: true
+  facture_cout_vario_annee:
+    name: "Facture coût VARIO année"
+    unique_id: facture_cout_vario_annee
+    source: sensor.facture_cout_cumule_vario
+    cycle: yearly
+    periodically_resetting: true
+
+# ── Capteurs template ─────────────────────────────────────────────────────────
+template:
+  # 1. Miroirs : couche d'adaptation vers le compteur P1 et les tarifs
+  - sensor:
+      - name: "Facture P1 import HP"
+        unique_id: facture_p1_import_hp
+        unit_of_measurement: kWh
+        device_class: energy
+        state_class: total_increasing
+        icon: mdi:transmission-tower-import
+        # Convertit automatiquement les Wh et MWh en kWh
+        state: >
+          {% set src = states('input_text.facture_source_import_hp') %}
+          {% set u = state_attr(src, 'unit_of_measurement') %}
+          {% set v = states(src) | float(0) %}
+          {{ v / 1000 if u == 'Wh' else v * 1000 if u == 'MWh' else v }}
+        availability: "{{ is_number(states(states('input_text.facture_source_import_hp'))) }}"
+        attributes:
+          source: "{{ states('input_text.facture_source_import_hp') }}"
+      - name: "Facture P1 import HC"
+        unique_id: facture_p1_import_hc
+        unit_of_measurement: kWh
+        device_class: energy
+        state_class: total_increasing
+        icon: mdi:transmission-tower-import
+        # Convertit automatiquement les Wh et MWh en kWh
+        state: >
+          {% set src = states('input_text.facture_source_import_hc') %}
+          {% set u = state_attr(src, 'unit_of_measurement') %}
+          {% set v = states(src) | float(0) %}
+          {{ v / 1000 if u == 'Wh' else v * 1000 if u == 'MWh' else v }}
+        availability: "{{ is_number(states(states('input_text.facture_source_import_hc'))) }}"
+        attributes:
+          source: "{{ states('input_text.facture_source_import_hc') }}"
+      - name: "Facture P1 injection"
+        unique_id: facture_p1_injection
+        unit_of_measurement: kWh
+        device_class: energy
+        state_class: total_increasing
+        icon: mdi:transmission-tower-export
+        # Convertit automatiquement les Wh et MWh en kWh
+        state: >
+          {% set src = states('input_text.facture_source_injection') %}
+          {% set u = state_attr(src, 'unit_of_measurement') %}
+          {% set v = states(src) | float(0) %}
+          {{ v / 1000 if u == 'Wh' else v * 1000 if u == 'MWh' else v }}
+        availability: "{{ is_number(states(states('input_text.facture_source_injection'))) }}"
+        attributes:
+          source: "{{ states('input_text.facture_source_injection') }}"
+      - name: "Facture tarif actif"
+        unique_id: facture_tarif_actif
+        icon: mdi:clock-time-four-outline
+        # Le tarif 1 du compteur = heures pleines, le tarif 2 = heures creuses
+        state: >
+          {% set t = states(states('input_text.facture_source_tarif_actif')) %}
+          {{ 'HP' if t == '1' else 'HC' if t == '2' else 'inconnu' }}
+      - name: "Facture prix HP"
+        unique_id: facture_prix_hp
+        unit_of_measurement: "CHF/kWh"
+        state_class: measurement
+        icon: mdi:weather-sunny
+        state: "{{ states(states('input_text.facture_source_prix_double_hp')) | float(0) }}"
+        availability: "{{ has_value(states('input_text.facture_source_prix_double_hp')) }}"
+      - name: "Facture prix HC"
+        unique_id: facture_prix_hc
+        unit_of_measurement: "CHF/kWh"
+        state_class: measurement
+        icon: mdi:weather-night
+        state: "{{ states(states('input_text.facture_source_prix_double_hc')) | float(0) }}"
+        availability: "{{ has_value(states('input_text.facture_source_prix_double_hc')) }}"
+      - name: "Facture prix DOUBLE maintenant"
+        unique_id: facture_prix_double_maintenant
+        unit_of_measurement: "CHF/kWh"
+        state_class: measurement
+        icon: mdi:flash
+        state: "{{ states('sensor.facture_prix_hp') | float(0) if is_state('sensor.facture_tarif_actif', 'HP') else states('sensor.facture_prix_hc') | float(0) }}"
+        availability: "{{ has_value('sensor.facture_prix_hp') and has_value('sensor.facture_prix_hc') and states('sensor.facture_tarif_actif') in ['HP', 'HC'] }}"
+      # Prix VARIO du créneau de 15 min en cours, lu dans la grille de prix (l'état
+      # d'un capteur "prix actuel" peut avoir un créneau de retard).
+      - name: "Facture prix VARIO maintenant"
+        unique_id: facture_prix_vario_maintenant
+        unit_of_measurement: "CHF/kWh"
+        state_class: measurement
+        icon: mdi:flash
+        state: >
+          {%- set src = states('input_text.facture_source_grille_vario') -%}
+          {%- set prices = state_attr(src, 'prices') -%}
+          {%- set ns = namespace(p=none) -%}
+          {%- if prices is iterable and prices is not string -%}
+            {%- for s in prices -%}
+              {%- set t = as_datetime(s[0]) | as_local -%}
+              {%- if t <= now() and (now() - t).total_seconds() < 900 -%}{%- set ns.p = s[1] -%}{%- endif -%}
+            {%- endfor -%}
+          {%- endif -%}
+          {{ ns.p if ns.p is not none else states(src) | float(0) }}
+        availability: "{{ state_attr(states('input_text.facture_source_grille_vario'), 'prices') is not none }}"
+      - name: "Facture VARIO min du jour"
+        unique_id: facture_vario_min_du_jour
+        unit_of_measurement: "CHF/kWh"
+        state_class: measurement
+        icon: mdi:arrow-collapse-down
+        state: >
+          {%- set prices = state_attr(states('input_text.facture_source_grille_vario'), 'prices') -%}
+          {%- set ns = namespace(v=[]) -%}
+          {%- if prices is iterable and prices is not string -%}
+            {%- for s in prices -%}
+              {%- if (as_datetime(s[0]) | as_local).date() == now().date() -%}{%- set ns.v = ns.v + [s[1] | float(0)] -%}{%- endif -%}
+            {%- endfor -%}
+          {%- endif -%}
+          {{ ns.v | min if ns.v | length > 0 else none }}
+        availability: "{{ state_attr(states('input_text.facture_source_grille_vario'), 'prices') is not none }}"
+      - name: "Facture VARIO max du jour"
+        unique_id: facture_vario_max_du_jour
+        unit_of_measurement: "CHF/kWh"
+        state_class: measurement
+        icon: mdi:arrow-collapse-up
+        state: >
+          {%- set prices = state_attr(states('input_text.facture_source_grille_vario'), 'prices') -%}
+          {%- set ns = namespace(v=[]) -%}
+          {%- if prices is iterable and prices is not string -%}
+            {%- for s in prices -%}
+              {%- if (as_datetime(s[0]) | as_local).date() == now().date() -%}{%- set ns.v = ns.v + [s[1] | float(0)] -%}{%- endif -%}
+            {%- endfor -%}
+          {%- endif -%}
+          {{ ns.v | max if ns.v | length > 0 else none }}
+        availability: "{{ state_attr(states('input_text.facture_source_grille_vario'), 'prices') is not none }}"
+
+  # 2. Facture estimée = kWh × prix HP/HC − reprise de l'injection + frais fixes (au prorata)
+  - sensor:
+      - name: "Facture estimée jour"
+        unique_id: facture_estimee_jour
+        unit_of_measurement: "CHF"
+        state_class: measurement
+        icon: mdi:cash-multiple
+        state: >
+          {% set achat = states('sensor.facture_conso_hp_jour') | float(0) * states('sensor.facture_prix_hp') | float(0)
+                       + states('sensor.facture_conso_hc_jour') | float(0) * states('sensor.facture_prix_hc') | float(0) %}
+          {% set credit = states('sensor.facture_injection_jour') | float(0) * states('input_number.facture_prix_reprise_injection') | float(0) %}
+          {% set mdays = ((now().replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)).day %}
+          {% set fixe = states('input_number.facture_frais_fixes_mensuels') | float(0) / mdays %}
+          {{ (achat - credit + fixe) | round(2) }}
+        availability: >
+          {{ has_value('sensor.facture_prix_hp') and has_value('sensor.facture_prix_hc')
+             and has_value('sensor.facture_conso_hp_jour') and has_value('sensor.facture_conso_hc_jour')
+             and has_value('sensor.facture_injection_jour') }}
+      - name: "Facture estimée mois"
+        unique_id: facture_estimee_mois
+        unit_of_measurement: "CHF"
+        state_class: measurement
+        icon: mdi:cash-multiple
+        state: >
+          {% set achat = states('sensor.facture_conso_hp_mois') | float(0) * states('sensor.facture_prix_hp') | float(0)
+                       + states('sensor.facture_conso_hc_mois') | float(0) * states('sensor.facture_prix_hc') | float(0) %}
+          {% set credit = states('sensor.facture_injection_mois') | float(0) * states('input_number.facture_prix_reprise_injection') | float(0) %}
+          {% set mdays = ((now().replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)).day %}
+          {% set fixe = states('input_number.facture_frais_fixes_mensuels') | float(0) * now().day / mdays %}
+          {{ (achat - credit + fixe) | round(2) }}
+        availability: >
+          {{ has_value('sensor.facture_prix_hp') and has_value('sensor.facture_prix_hc')
+             and has_value('sensor.facture_conso_hp_mois') and has_value('sensor.facture_conso_hc_mois')
+             and has_value('sensor.facture_injection_mois') }}
+      - name: "Facture estimée année"
+        unique_id: facture_estimee_annee
+        unit_of_measurement: "CHF"
+        state_class: measurement
+        icon: mdi:cash-multiple
+        state: >
+          {% set achat = states('sensor.facture_conso_hp_annee') | float(0) * states('sensor.facture_prix_hp') | float(0)
+                       + states('sensor.facture_conso_hc_annee') | float(0) * states('sensor.facture_prix_hc') | float(0) %}
+          {% set credit = states('sensor.facture_injection_annee') | float(0) * states('input_number.facture_prix_reprise_injection') | float(0) %}
+          {% set mdays = ((now().replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)).day %}
+          {% set fixe = states('input_number.facture_frais_fixes_mensuels') | float(0) * ((now().month - 1) + now().day / mdays) %}
+          {{ (achat - credit + fixe) | round(2) }}
+        availability: >
+          {{ has_value('sensor.facture_prix_hp') and has_value('sensor.facture_prix_hc')
+             and has_value('sensor.facture_conso_hp_annee') and has_value('sensor.facture_conso_hc_annee')
+             and has_value('sensor.facture_injection_annee') }}
+
+  # 3. Coûts cumulés DOUBLE et VARIO : chaque kWh importé est valorisé au prix du moment
+  - triggers:
+      - trigger: state
+        entity_id:
+          - sensor.facture_p1_import_hp
+          - sensor.facture_p1_import_hc
+    variables:
+      # kWh consommés depuis la dernière mise à jour du miroir (0 si valeur invalide,
+      # remise à zéro, ou si la source P1 a été changée entre-temps)
+      delta: >
+        {% set same = trigger.from_state is not none and trigger.to_state is not none
+           and trigger.from_state.attributes.source == trigger.to_state.attributes.source %}
+        {% set p = trigger.from_state.state | float(none) if trigger.from_state is not none else none %}
+        {% set c = trigger.to_state.state | float(none) if trigger.to_state is not none else none %}
+        {{ (c - p) if same and p is not none and c is not none and c >= p else 0 }}
+      # DOUBLE : miroir HP = heures pleines, miroir HC = heures creuses
+      prix_double: >
+        {{ states('sensor.facture_prix_hp') if trigger.entity_id == 'sensor.facture_p1_import_hp' else states('sensor.facture_prix_hc') }}
+      # VARIO : prix du créneau de 15 min en cours (repli sur le dernier prix connu)
+      prix_vario: >
+        {%- set prices = state_attr(states('input_text.facture_source_grille_vario'), 'prices') -%}
+        {%- set ns = namespace(p=none) -%}
+        {%- if prices is iterable and prices is not string -%}
+          {%- for s in prices -%}
+            {%- set t = as_datetime(s[0]) | as_local -%}
+            {%- if t <= now() and (now() - t).total_seconds() < 900 -%}{%- set ns.p = s[1] -%}{%- endif -%}
+          {%- endfor -%}
+        {%- endif -%}
+        {{ ns.p if ns.p is not none else (state_attr('sensor.facture_cout_cumule_vario', 'dernier_prix') | float(0)) }}
+    sensor:
+      - name: "Facture coût cumulé DOUBLE"
+        unique_id: facture_cout_cumule_double
+        unit_of_measurement: "CHF"
+        state_class: total_increasing
+        icon: mdi:cash-plus
+        state: >
+          {{ (this.state | float(0) + delta | float(0) * prix_double | float(0)) | round(6) }}
+      - name: "Facture coût cumulé VARIO"
+        unique_id: facture_cout_cumule_vario
+        unit_of_measurement: "CHF"
+        state_class: total_increasing
+        icon: mdi:cash-plus
+        state: >
+          {{ (this.state | float(0) + delta | float(0) * prix_vario | float(0)) | round(6) }}
+        attributes:
+          dernier_prix: "{{ prix_vario }}"
+
+# ── Script : choisir les entités lues par le rapport ──────────────────────────
+script:
+  facture_choisir_sources:
+    alias: "Facture : choisir les sources (P1 et tarifs)"
+    icon: mdi:cog-transfer
+    description: >-
+      Choisit les entités utilisées par le rapport de facture d'électricité
+      (compteur P1 et tarifs). Ne renseigner que les champs à modifier. Après un
+      changement de compteur P1, recalibrer les compteurs jour/mois/année.
+    mode: single
+    fields:
+      import_hp:
+        name: "P1 : énergie importée HP (tarif 1)"
+        description: "Compteur cumulé d'énergie importée en heures pleines"
+        required: false
+        selector:
+          entity: {domain: sensor, device_class: energy}
+      import_hc:
+        name: "P1 : énergie importée HC (tarif 2)"
+        description: "Compteur cumulé d'énergie importée en heures creuses"
+        required: false
+        selector:
+          entity: {domain: sensor, device_class: energy}
+      injection:
+        name: "P1 : énergie injectée (export)"
+        description: "Compteur cumulé d'énergie injectée dans le réseau"
+        required: false
+        selector:
+          entity: {domain: sensor, device_class: energy}
+      tarif_actif:
+        name: "P1 : tarif actif"
+        description: "Capteur dont l'état vaut 1 en heures pleines et 2 en heures creuses"
+        required: false
+        selector:
+          entity: {domain: sensor}
+      prix_hp:
+        name: "Tarif DOUBLE : prix HP"
+        description: "Capteur du prix du kWh en heures pleines (CHF/kWh)"
+        required: false
+        selector:
+          entity: {domain: sensor}
+      prix_hc:
+        name: "Tarif DOUBLE : prix HC"
+        description: "Capteur du prix du kWh en heures creuses (CHF/kWh)"
+        required: false
+        selector:
+          entity: {domain: sensor}
+      grille_vario:
+        name: "Tarif VARIO : grille de prix"
+        description: "Capteur dont l'attribut prices contient la liste [heure, prix] par créneau de 15 min"
+        required: false
+        selector:
+          entity: {domain: sensor}
+    sequence:
+      - if:
+          - condition: template
+            value_template: "{{ import_hp is defined and import_hp | length > 0 }}"
+        then:
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.facture_source_import_hp
+            data:
+              value: "{{ import_hp }}"
+      - if:
+          - condition: template
+            value_template: "{{ import_hc is defined and import_hc | length > 0 }}"
+        then:
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.facture_source_import_hc
+            data:
+              value: "{{ import_hc }}"
+      - if:
+          - condition: template
+            value_template: "{{ injection is defined and injection | length > 0 }}"
+        then:
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.facture_source_injection
+            data:
+              value: "{{ injection }}"
+      - if:
+          - condition: template
+            value_template: "{{ tarif_actif is defined and tarif_actif | length > 0 }}"
+        then:
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.facture_source_tarif_actif
+            data:
+              value: "{{ tarif_actif }}"
+      - if:
+          - condition: template
+            value_template: "{{ prix_hp is defined and prix_hp | length > 0 }}"
+        then:
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.facture_source_prix_double_hp
+            data:
+              value: "{{ prix_hp }}"
+      - if:
+          - condition: template
+            value_template: "{{ prix_hc is defined and prix_hc | length > 0 }}"
+        then:
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.facture_source_prix_double_hc
+            data:
+              value: "{{ prix_hc }}"
+      - if:
+          - condition: template
+            value_template: "{{ grille_vario is defined and grille_vario | length > 0 }}"
+        then:
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.facture_source_grille_vario
+            data:
+              value: "{{ grille_vario }}"
+
+# ── Valeurs par défaut au démarrage (seulement si le champ est vide) ──────────
+# Défauts : compteur HomeWizard P1 + intégration Groupe E Tariffs.
+automation:
+  - id: facture_electricite_defauts
+    alias: "Facture : valeurs par défaut au démarrage"
+    description: >-
+      Renseigne les entités sources par défaut si elles sont vides, et la date de
+      début du suivi du comparatif. Ne modifie jamais une sélection existante.
+    mode: single
+    triggers:
+      - trigger: homeassistant
+        event: start
+    actions:
+      - repeat:
+          for_each:
+            - entity: input_text.facture_source_import_hp
+              default: sensor.p1_meter_energy_import_tariff_1
+            - entity: input_text.facture_source_import_hc
+              default: sensor.p1_meter_energy_import_tariff_2
+            - entity: input_text.facture_source_injection
+              default: sensor.p1_meter_energy_export
+            - entity: input_text.facture_source_tarif_actif
+              default: sensor.p1_meter_tariff
+            - entity: input_text.facture_source_prix_double_hp
+              default: sensor.groupe_e_tariffs_v2_double_max_price_today
+            - entity: input_text.facture_source_prix_double_hc
+              default: sensor.groupe_e_tariffs_v2_double_min_price_today
+            - entity: input_text.facture_source_grille_vario
+              default: sensor.groupe_e_tariffs_v2_vario_price_schedule
+          sequence:
+            - if:
+                - condition: template
+                  value_template: "{{ states(repeat.item.entity) in ['', 'unknown', 'unavailable'] }}"
+              then:
+                - action: input_text.set_value
+                  target:
+                    entity_id: "{{ repeat.item.entity }}"
+                  data:
+                    value: "{{ repeat.item.default }}"
+      - if:
+          - condition: template
+            value_template: "{{ states('input_datetime.facture_suivi_depuis').startswith('1970') }}"
+        then:
+          - action: input_datetime.set_datetime
+            target:
+              entity_id: input_datetime.facture_suivi_depuis
+            data:
+              datetime: "{{ now().strftime('%Y-%m-%d %H:%M:%S') }}"

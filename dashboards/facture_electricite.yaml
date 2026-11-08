@@ -1,0 +1,267 @@
+# Dashboard « Facture électricité » — à coller dans l'éditeur de configuration brute
+# (Paramètres > Tableaux de bord > ⋮ > Modifier > ⋮ > Éditeur de configuration brute)
+title: Facture électricité
+views:
+- title: Facture et comparatif
+  path: facture
+  icon: mdi:cash-multiple
+  type: sections
+  max_columns: 3
+  sections:
+  - type: grid
+    cards:
+    - type: heading
+      heading: Facture estimée
+      icon: mdi:cash-multiple
+    - type: tile
+      entity: sensor.facture_estimee_jour
+      name: Aujourd'hui
+      grid_options:
+        columns: 4
+      icon: mdi:calendar-today
+      vertical: true
+    - type: tile
+      entity: sensor.facture_estimee_mois
+      name: Ce mois
+      grid_options:
+        columns: 4
+      icon: mdi:calendar-month
+      vertical: true
+    - type: tile
+      entity: sensor.facture_estimee_annee
+      name: Cette année
+      grid_options:
+        columns: 4
+      icon: mdi:calendar
+      vertical: true
+    - type: markdown
+      content: |-
+        {% set ph = states('sensor.facture_prix_hp')|float(0) %}{% set pc = states('sensor.facture_prix_hc')|float(0) %}{% set pi = states('input_number.facture_prix_reprise_injection')|float(0) %}
+        | Période | HP (kWh) | HC (kWh) | Achat | Reprise | Frais fixes | **Total** |
+        |:--|--:|--:|--:|--:|--:|--:|
+        {% for label, k in [("Aujourd'hui","jour"),("Ce mois","mois"),("Cette année","annee")] %}{% set hp = states('sensor.facture_conso_hp_' ~ k)|float(0) %}{% set hc = states('sensor.facture_conso_hc_' ~ k)|float(0) %}{% set inj = states('sensor.facture_injection_' ~ k)|float(0) %}{% set achat = hp*ph + hc*pc %}{% set credit = inj*pi %}{% set total = states('sensor.facture_estimee_' ~ k)|float(0) %}{% set fixe = [total - achat + credit, 0] | max %}| {{ label }} | {{ '%.1f'|format(hp) }} | {{ '%.1f'|format(hc) }} | {{ '%.2f'|format(achat) }} | {{ ('−' ~ '%.2f'|format(credit)) if credit > 0 else '0.00' }} | {{ '%.2f'|format(fixe) }} | **{{ '%.2f'|format(total) }} CHF** |
+        {% endfor %}
+        *Estimation : kWh × prix HP/HC actuels (CHF/kWh) − reprise de l'injection + frais fixes.*
+      grid_options:
+        columns: full
+  - type: grid
+    cards:
+    - type: heading
+      heading: DOUBLE (HP/HC) vs VARIO (dynamique)
+      icon: mdi:scale-balance
+    - type: markdown
+      content: |-
+        Suivi depuis le **{{ states('input_datetime.facture_suivi_depuis')[:16] }}** — achat d'électricité uniquement (import réseau).
+
+        | Période | DOUBLE | VARIO | Écart VARIO − DOUBLE | Écart |
+        |:--|--:|--:|--:|--:|
+        {% for label, k in [("Aujourd'hui","jour"),("Ce mois","mois"),("Cette année","annee")] %}{% set d = states('sensor.facture_cout_double_' ~ k)|float(0) %}{% set v = states('sensor.facture_cout_vario_' ~ k)|float(0) %}{% set e = v - d %}| {{ label }} | {{ '%.2f'|format(d) }} CHF | {{ '%.2f'|format(v) }} CHF | **{{ '%+.2f'|format(e) }} CHF** | {{ ('%+.1f'|format(e / d * 100) ~ ' %') if d > 0 else '–' }} |
+        {% endfor %}
+        *Écart négatif = le tarif dynamique aurait coûté moins cher. Chaque kWh est valorisé au prix du moment (créneau de 15 min pour VARIO, HP/HC pour DOUBLE).*
+      grid_options:
+        columns: full
+    - type: heading
+      heading: Prix du kWh maintenant
+      icon: mdi:flash
+    - type: tile
+      entity: sensor.facture_prix_double_maintenant
+      name: DOUBLE – maintenant
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: sensor.facture_prix_vario_maintenant
+      name: VARIO – maintenant
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: sensor.facture_vario_min_du_jour
+      name: VARIO – min du jour
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: sensor.facture_vario_max_du_jour
+      name: VARIO – max du jour
+      grid_options:
+        columns: 6
+  - type: grid
+    cards:
+    - type: heading
+      heading: Tarifs
+      icon: mdi:tag-multiple
+    - type: tile
+      entity: sensor.facture_tarif_actif
+      name: Tarif en cours
+      grid_options:
+        columns: 4
+      icon: mdi:clock-time-four-outline
+    - type: tile
+      entity: sensor.facture_prix_hp
+      name: Prix HP
+      grid_options:
+        columns: 4
+      icon: mdi:weather-sunny
+    - type: tile
+      entity: sensor.facture_prix_hc
+      name: Prix HC
+      grid_options:
+        columns: 4
+      icon: mdi:weather-night
+    - type: heading
+      heading: Réglages
+      heading_style: subtitle
+    - type: tile
+      entity: input_number.facture_prix_reprise_injection
+      name: Prix reprise injection
+      grid_options:
+        columns: 6
+    - type: tile
+      entity: input_number.facture_frais_fixes_mensuels
+      name: Frais fixes / mois
+      grid_options:
+        columns: 6
+  - type: grid
+    cards:
+    - type: heading
+      heading: Historique
+      icon: mdi:chart-line
+    - type: history-graph
+      title: Prix du kWh (24 h)
+      hours_to_show: 24
+      grid_options:
+        columns: full
+        rows: 6
+      entities:
+      - entity: sensor.facture_prix_vario_maintenant
+        name: VARIO
+      - entity: sensor.facture_prix_double_maintenant
+        name: DOUBLE
+  - type: grid
+    cards:
+    - type: heading
+      heading: Consommation
+      icon: mdi:chart-bar
+    - type: statistics-graph
+      title: Import HP / HC par jour
+      chart_type: bar
+      days_to_show: 30
+      period: day
+      stat_types:
+      - change
+      grid_options:
+        columns: full
+      entities:
+      - entity: sensor.facture_p1_import_hp
+        name: HP
+        color: orange
+      - entity: sensor.facture_p1_import_hc
+        name: HC
+        color: blue
+    - type: statistics-graph
+      title: Import HP / HC par mois
+      chart_type: bar
+      days_to_show: 365
+      period: month
+      stat_types:
+      - change
+      grid_options:
+        columns: full
+      entities:
+      - entity: sensor.facture_p1_import_hp
+        name: HP
+        color: orange
+      - entity: sensor.facture_p1_import_hc
+        name: HC
+        color: blue
+    - type: statistics-graph
+      title: Injection par jour
+      chart_type: bar
+      days_to_show: 30
+      period: day
+      stat_types:
+      - change
+      grid_options:
+        columns: full
+      entities:
+      - entity: sensor.facture_p1_injection
+        name: Injection
+        color: green
+- title: Paramètres
+  path: parametres
+  icon: mdi:cog
+  type: sections
+  max_columns: 2
+  sections:
+  - type: grid
+    cards:
+    - type: heading
+      heading: Compteur P1
+      icon: mdi:transmission-tower
+    - type: button
+      entity: script.facture_choisir_sources
+      name: Choisir les entités…
+      icon: mdi:cog-transfer
+      show_state: false
+      tap_action:
+        action: more-info
+      grid_options:
+        columns: full
+    - type: entities
+      title: Entités lues (modifiables)
+      show_header_toggle: false
+      grid_options:
+        columns: full
+      entities:
+      - entity: input_text.facture_source_import_hp
+        name: Import HP (tarif 1)
+      - entity: input_text.facture_source_import_hc
+        name: Import HC (tarif 2)
+      - entity: input_text.facture_source_injection
+        name: Injection (export)
+      - entity: input_text.facture_source_tarif_actif
+        name: Tarif actif (1 = HP, 2 = HC)
+  - type: grid
+    cards:
+    - type: heading
+      heading: Tarifs
+      icon: mdi:tag-multiple
+    - type: entities
+      title: Entités lues (modifiables)
+      show_header_toggle: false
+      grid_options:
+        columns: full
+      entities:
+      - entity: input_text.facture_source_prix_double_hp
+        name: DOUBLE – prix HP
+      - entity: input_text.facture_source_prix_double_hc
+        name: DOUBLE – prix HC
+      - entity: input_text.facture_source_grille_vario
+        name: VARIO – grille de prix
+  - type: grid
+    cards:
+    - type: heading
+      heading: Valeurs lues
+      icon: mdi:eye
+    - type: markdown
+      content: |-
+        | Donnée | Entité lue | Valeur |
+        |:--|:--|--:|
+        {% for label, ent in [('Import HP','input_text.facture_source_import_hp'),('Import HC','input_text.facture_source_import_hc'),('Injection','input_text.facture_source_injection'),('Tarif actif','input_text.facture_source_tarif_actif'),('Prix DOUBLE HP','input_text.facture_source_prix_double_hp'),('Prix DOUBLE HC','input_text.facture_source_prix_double_hc'),('Grille VARIO (prix actuel)','input_text.facture_source_grille_vario')] %}{% set src = states(ent) %}| {{ label }} | `{{ src }}` | {{ states(src) }} {{ state_attr(src, 'unit_of_measurement') or '' }} |
+        {% endfor %}
+      grid_options:
+        columns: full
+  - type: grid
+    cards:
+    - type: heading
+      heading: À savoir
+      icon: mdi:information-outline
+    - type: markdown
+      content: |-
+        **Changer de compteur P1**
+
+        Les compteurs jour / mois / année additionnent l'écart entre deux lectures. Si tu changes l'import HP, l'import HC ou l'injection, la première lecture du nouveau compteur crée un saut : recalibre ensuite les compteurs concernés (`utility_meter.calibrate`). Les coûts cumulés DOUBLE et VARIO ignorent ce saut.
+
+        **Unités**
+
+        Les capteurs en Wh ou MWh sont convertis automatiquement en kWh.
+      grid_options:
+        columns: full

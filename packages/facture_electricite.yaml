@@ -75,6 +75,13 @@ input_datetime:
     icon: mdi:calendar-start
     has_date: true
     has_time: true
+  # Date de début du suivi des kWh : sert à compter les frais fixes seulement
+  # depuis cette date (posée au premier démarrage, modifiable dans le dashboard)
+  facture_suivi_donnees_depuis:
+    name: "Facture frais fixes comptés depuis"
+    icon: mdi:calendar-start
+    has_date: true
+    has_time: false
 
 # ── Compteurs jour / mois / année (utility_meter) ─────────────────────────────
 utility_meter:
@@ -249,7 +256,8 @@ template:
         state: "{{ states('sensor.facture_prix_hp') | float(0) if is_state('sensor.facture_tarif_actif', 'HP') else states('sensor.facture_prix_hc') | float(0) }}"
         availability: "{{ has_value('sensor.facture_prix_hp') and has_value('sensor.facture_prix_hc') and states('sensor.facture_tarif_actif') in ['HP', 'HC'] }}"
       # Prix VARIO du créneau de 15 min en cours, lu dans la grille de prix (l'état
-      # d'un capteur "prix actuel" peut avoir un créneau de retard).
+      # d'un capteur "prix actuel" peut avoir un créneau de retard). On retient le
+      # dernier créneau commencé (jusqu'à 1 h) : un trou dans la grille ne donne pas 0.
       - name: "Facture prix VARIO maintenant"
         unique_id: facture_prix_vario_maintenant
         unit_of_measurement: "CHF/kWh"
@@ -258,11 +266,11 @@ template:
         state: >
           {%- set src = states('input_text.facture_source_grille_vario') -%}
           {%- set prices = state_attr(src, 'prices') -%}
-          {%- set ns = namespace(p=none) -%}
+          {%- set ns = namespace(p=none, t=none) -%}
           {%- if prices is iterable and prices is not string -%}
             {%- for s in prices -%}
               {%- set t = as_datetime(s[0]) | as_local -%}
-              {%- if t <= now() and (now() - t).total_seconds() < 900 -%}{%- set ns.p = s[1] -%}{%- endif -%}
+              {%- if t <= now() and (now() - t).total_seconds() < 3600 and (ns.t is none or t > ns.t) -%}{%- set ns.p = s[1] -%}{%- set ns.t = t -%}{%- endif -%}
             {%- endfor -%}
           {%- endif -%}
           {{ ns.p if ns.p is not none else states(src) | float(0) }}
@@ -326,7 +334,10 @@ template:
                        + states('sensor.facture_conso_hc_mois') | float(0) * states('sensor.facture_prix_hc') | float(0) %}
           {% set credit = states('sensor.facture_injection_mois') | float(0) * states('input_number.facture_prix_reprise_injection') | float(0) %}
           {% set mdays = ((now().replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)).day %}
-          {% set fixe = states('input_number.facture_frais_fixes_mensuels') | float(0) * now().day / mdays %}
+          {# Frais fixes comptés depuis le début du suivi (ou le 1er du mois si le suivi est plus ancien) #}
+          {% set s = 'input_datetime.facture_suivi_donnees_depuis' %}
+          {% set debut = state_attr(s, 'day') | int(1) if (state_attr(s, 'year') | int(0) == now().year and state_attr(s, 'month') | int(0) == now().month) else 1 %}
+          {% set fixe = states('input_number.facture_frais_fixes_mensuels') | float(0) * ([now().day - debut + 1, 0] | max) / mdays %}
           {{ (achat - credit + fixe) | round(2) }}
         availability: >
           {{ has_value('sensor.facture_prix_hp') and has_value('sensor.facture_prix_hc')
@@ -342,39 +353,47 @@ template:
                        + states('sensor.facture_conso_hc_annee') | float(0) * states('sensor.facture_prix_hc') | float(0) %}
           {% set credit = states('sensor.facture_injection_annee') | float(0) * states('input_number.facture_prix_reprise_injection') | float(0) %}
           {% set mdays = ((now().replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)).day %}
-          {% set fixe = states('input_number.facture_frais_fixes_mensuels') | float(0) * ((now().month - 1) + now().day / mdays) %}
+          {# Frais fixes comptés depuis le début du suivi (ou le 1er janvier si le suivi est plus ancien) #}
+          {% set s = 'input_datetime.facture_suivi_donnees_depuis' %}
+          {% set y0 = state_attr(s, 'year') | int(0) %}
+          {% set ok = y0 == now().year %}
+          {% set m = state_attr(s, 'month') | int(1) if ok else 1 %}
+          {% set d = state_attr(s, 'day') | int(1) if ok else 1 %}
+          {% set dstart = ((now().replace(year=now().year, month=m, day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)).day %}
+          {% set mois_ecoules = (now().month - m) + now().day / mdays - (d - 1) / dstart %}
+          {% set fixe = states('input_number.facture_frais_fixes_mensuels') | float(0) * ([mois_ecoules, 0] | max) %}
           {{ (achat - credit + fixe) | round(2) }}
         availability: >
           {{ has_value('sensor.facture_prix_hp') and has_value('sensor.facture_prix_hc')
              and has_value('sensor.facture_conso_hp_annee') and has_value('sensor.facture_conso_hc_annee')
              and has_value('sensor.facture_injection_annee') }}
 
-  # 3. Coûts cumulés DOUBLE et VARIO : chaque kWh importé est valorisé au prix du moment
+  # 3. Coûts cumulés DOUBLE et VARIO : chaque kWh importé est valorisé au prix du moment.
+  # Le dernier relevé valide de chaque miroir (HP, HC) est mémorisé dans les attributs
+  # releve_* : si le P1 devient indisponible puis revient, les kWh consommés pendant la
+  # coupure sont comptés au retour du compteur (au prix du moment).
   - triggers:
       - trigger: state
         entity_id:
           - sensor.facture_p1_import_hp
           - sensor.facture_p1_import_hc
     variables:
-      # kWh consommés depuis la dernière mise à jour du miroir (0 si valeur invalide,
-      # remise à zéro, ou si la source P1 a été changée entre-temps)
-      delta: >
-        {% set same = trigger.from_state is not none and trigger.to_state is not none
-           and trigger.from_state.attributes.source == trigger.to_state.attributes.source %}
-        {% set p = trigger.from_state.state | float(none) if trigger.from_state is not none else none %}
-        {% set c = trigger.to_state.state | float(none) if trigger.to_state is not none else none %}
-        {{ (c - p) if same and p is not none and c is not none and c >= p else 0 }}
+      est_hp: "{{ trigger.entity_id == 'sensor.facture_p1_import_hp' }}"
+      # Relevé du miroir déclencheur et entité source (rien si indisponible)
+      releve: "{{ trigger.to_state.state | float(none) if trigger.to_state is not none else none }}"
+      origine: "{{ trigger.to_state.attributes.source if trigger.to_state is not none else none }}"
       # DOUBLE : miroir HP = heures pleines, miroir HC = heures creuses
       prix_double: >
-        {{ states('sensor.facture_prix_hp') if trigger.entity_id == 'sensor.facture_p1_import_hp' else states('sensor.facture_prix_hc') }}
-      # VARIO : prix du créneau de 15 min en cours (repli sur le dernier prix connu)
+        {{ states('sensor.facture_prix_hp') if est_hp else states('sensor.facture_prix_hc') }}
+      # VARIO : prix du dernier créneau de 15 min déjà commencé (jusqu'à 1 h), lu dans
+      # la grille de prix ; repli sur le dernier prix connu.
       prix_vario: >
         {%- set prices = state_attr(states('input_text.facture_source_grille_vario'), 'prices') -%}
-        {%- set ns = namespace(p=none) -%}
+        {%- set ns = namespace(p=none, t=none) -%}
         {%- if prices is iterable and prices is not string -%}
           {%- for s in prices -%}
             {%- set t = as_datetime(s[0]) | as_local -%}
-            {%- if t <= now() and (now() - t).total_seconds() < 900 -%}{%- set ns.p = s[1] -%}{%- endif -%}
+            {%- if t <= now() and (now() - t).total_seconds() < 3600 and (ns.t is none or t > ns.t) -%}{%- set ns.p = s[1] -%}{%- set ns.t = t -%}{%- endif -%}
           {%- endfor -%}
         {%- endif -%}
         {{ ns.p if ns.p is not none else (state_attr('sensor.facture_cout_cumule_vario', 'dernier_prix') | float(0)) }}
@@ -385,16 +404,33 @@ template:
         state_class: total_increasing
         icon: mdi:cash-plus
         state: >
-          {{ (this.state | float(0) + delta | float(0) * prix_double | float(0)) | round(6) }}
+          {% set suf = 'hp' if est_hp else 'hc' %}
+          {% set prev = this.attributes.get('releve_' ~ suf) | float(none) %}
+          {% set meme = this.attributes.get('source_' ~ suf) == origine %}
+          {% set delta = (releve - prev) if releve is not none and prev is not none and meme and releve >= prev else 0 %}
+          {{ (this.state | float(0) + delta * prix_double | float(0)) | round(6) }}
+        attributes:
+          releve_hp: "{{ releve if est_hp and releve is not none else this.attributes.get('releve_hp') }}"
+          source_hp: "{{ origine if est_hp and releve is not none else this.attributes.get('source_hp') }}"
+          releve_hc: "{{ releve if not est_hp and releve is not none else this.attributes.get('releve_hc') }}"
+          source_hc: "{{ origine if not est_hp and releve is not none else this.attributes.get('source_hc') }}"
       - name: "Facture coût cumulé VARIO"
         unique_id: facture_cout_cumule_vario
         unit_of_measurement: "CHF"
         state_class: total_increasing
         icon: mdi:cash-plus
         state: >
-          {{ (this.state | float(0) + delta | float(0) * prix_vario | float(0)) | round(6) }}
+          {% set suf = 'hp' if est_hp else 'hc' %}
+          {% set prev = this.attributes.get('releve_' ~ suf) | float(none) %}
+          {% set meme = this.attributes.get('source_' ~ suf) == origine %}
+          {% set delta = (releve - prev) if releve is not none and prev is not none and meme and releve >= prev else 0 %}
+          {{ (this.state | float(0) + delta * prix_vario | float(0)) | round(6) }}
         attributes:
           dernier_prix: "{{ prix_vario }}"
+          releve_hp: "{{ releve if est_hp and releve is not none else this.attributes.get('releve_hp') }}"
+          source_hp: "{{ origine if est_hp and releve is not none else this.attributes.get('source_hp') }}"
+          releve_hc: "{{ releve if not est_hp and releve is not none else this.attributes.get('releve_hc') }}"
+          source_hc: "{{ origine if not est_hp and releve is not none else this.attributes.get('source_hc') }}"
 
 # ── Script : choisir les entités lues par le rapport ──────────────────────────
 script:
@@ -553,6 +589,15 @@ automation:
                     entity_id: "{{ repeat.item.entity }}"
                   data:
                     value: "{{ repeat.item.default }}"
+      - if:
+          - condition: template
+            value_template: "{{ states('input_datetime.facture_suivi_donnees_depuis').startswith('1970') or states('input_datetime.facture_suivi_donnees_depuis') in ['unknown', 'unavailable'] }}"
+        then:
+          - action: input_datetime.set_datetime
+            target:
+              entity_id: input_datetime.facture_suivi_donnees_depuis
+            data:
+              date: "{{ now().strftime('%Y-%m-%d') }}"
       - if:
           - condition: template
             value_template: "{{ states('input_datetime.facture_suivi_depuis').startswith('1970') }}"

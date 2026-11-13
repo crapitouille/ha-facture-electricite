@@ -41,7 +41,7 @@ views:
         |:--|--:|--:|--:|--:|--:|--:|
         {% for label, k in [("Aujourd'hui","jour"),("Ce mois","mois"),("Cette année","annee")] %}{% set hp = states('sensor.facture_conso_hp_' ~ k)|float(0) %}{% set hc = states('sensor.facture_conso_hc_' ~ k)|float(0) %}{% set inj = states('sensor.facture_injection_' ~ k)|float(0) %}{% set achat = hp*ph + hc*pc %}{% set credit = inj*pi %}{% set total = states('sensor.facture_estimee_' ~ k)|float(0) %}{% set fixe = [total - achat + credit, 0] | max %}| {{ label }} | {{ '%.1f'|format(hp) }} | {{ '%.1f'|format(hc) }} | {{ '%.2f'|format(achat) }} | {{ ('−' ~ '%.2f'|format(credit)) if credit > 0 else '0.00' }} | {{ '%.2f'|format(fixe) }} | **{{ '%.2f'|format(total) }} CHF** |
         {% endfor %}
-        *Estimation : kWh × prix HP/HC actuels (CHF/kWh) − reprise de l'injection + frais fixes.*
+        *Estimation : kWh × prix HP/HC actuels (CHF/kWh) − reprise de l'injection + frais fixes. « Aujourd'hui » court depuis minuit ; les frais fixes sont comptés depuis le début du suivi (voir Réglages).*
       grid_options:
         columns: full
   - type: grid
@@ -119,13 +119,18 @@ views:
       name: Frais fixes / mois
       grid_options:
         columns: 6
+    - type: tile
+      entity: input_datetime.facture_suivi_donnees_depuis
+      name: Frais fixes comptés depuis
+      grid_options:
+        columns: 6
   - type: grid
     cards:
     - type: heading
       heading: Historique
       icon: mdi:chart-line
     - type: history-graph
-      title: Prix du kWh (24 h)
+      title: Prix du kWh (24 dernières heures)
       hours_to_show: 24
       grid_options:
         columns: full
